@@ -106,3 +106,44 @@ This gives you Q/K/V in fp32 for your own attention calculations.
    python 2_get_x.py
    ```
 
+## Pseudocode for Q/K/V computation
+
+```python
+# 1) Load x_norm (RMSNorm output) for layer i
+X = load_csv("xnorm_layer{i}.csv")      # shape [B*T, d_model]
+
+# 2) Load projection weights
+Wq = load_csv("...q_proj.weight.csv")   # shape [H*Dh, d_model]
+Wk = load_csv("...k_proj.weight.csv")   # shape [Hkv*Dh, d_model]
+Wv = load_csv("...v_proj.weight.csv")   # shape [Hkv*Dh, d_model]
+
+# 3) Load metadata for reshaping
+meta = load_json("meta_layer{i}.json")
+B, T = X.shape[0] // meta["d_model"], X.shape[0] // meta["d_model"]  # infer from X
+H = meta["num_heads"]
+Hkv = meta["num_kv_heads"] 
+Dh = meta["head_dim"]
+
+# 4) Multiply (note: weight matrix is [out_dim, in_dim], so use transpose)
+Q_flat = X @ Wq.T   # [B*T, H*Dh]
+K_flat = X @ Wk.T   # [B*T, Hkv*Dh]
+V_flat = X @ Wv.T   # [B*T, Hkv*Dh]
+
+# 5) Reshape to 4D with heads
+Q = Q_flat.reshape(B, T, H, Dh)
+K = K_flat.reshape(B, T, Hkv, Dh)
+V = V_flat.reshape(B, T, Hkv, Dh)
+
+# 6) Apply RoPE (optional - for position encoding)
+pos_ids = load_csv("position_ids.csv")  # [B, T]
+rope_theta = meta["rope_theta"]
+# ... apply rotary position embedding to Q, K ...
+
+# 7) Handle GQA (Grouped Query Attention) - repeat K,V for missing heads
+if Hkv < H:
+    repeat_factor = H // Hkv
+    K = K.repeat_interleave(repeat_factor, dim=2)  # [B, T, H, Dh]
+    V = V.repeat_interleave(repeat_factor, dim=2)  # [B, T, H, Dh]
+
+# Now you have Q, K, V ready for attention computation!
+```

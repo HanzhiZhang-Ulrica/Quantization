@@ -151,7 +151,14 @@ if __name__ == "__main__":
         # Save x_norm too (pre-proj tensor actually used with Wq/Wk/Wv)
         if SAVE_X_NORM:
             x_t = hidden_states[i]  # torch [B, T, d_model], model dtype
-            x_norm = model.model.layers[i].input_layernorm(x_t).cpu().to(torch.float32).numpy()
+            x_norm = (
+                model.model.layers[i].input_layernorm(x_t)
+                .detach()
+                .cpu()
+                .to(torch.float32)
+                .numpy()
+            )
+
             out_xn = OUT_DIR / f"xnorm_layer{i}{ext}"
             save_array_text_3d(x_norm, out_xn)
 
