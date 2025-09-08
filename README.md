@@ -1,6 +1,4 @@
-Sure — here’s the simple README wrapped in a Markdown code fence so you can copy it directly:
 
-````markdown
 # README
 
 This repo has 3 scripts to work with **Llama-3.2 models**:
@@ -12,7 +10,9 @@ Download models from Hugging Face to `../model_paths/`.
 - Run:
   ```bash
   python 0_download_models.py
-````
+  # or with custom path:
+  python 0_download_models.py --model-path /path/to/models
+  ```
 
 * Example output:
 
@@ -30,7 +30,7 @@ Download models from Hugging Face to `../model_paths/`.
 
 Export every tensor from `model.safetensors` into **one CSV/TXT file per weight**.
 
-* Edit `MODEL_FILE` and `OUT_DIR`.
+* Edit `MODEL_FILE`, `OUT_DIR`, `CSV`, and `NAME_FILTER` at the top.
 * Run:
 
   ```bash
@@ -39,8 +39,15 @@ Export every tensor from `model.safetensors` into **one CSV/TXT file per weight*
 * Output:
 
   ```
+  ./llama32_1b_weights/model.embed_tokens.weight.csv
   ./llama32_1b_weights/model.layers.0.self_attn.q_proj.weight.csv
+  ./llama32_1b_weights/model.layers.0.self_attn.k_proj.weight.csv
   ...
+  ```
+
+* **Filtering example** (only attention weights):
+  ```python
+  NAME_FILTER = lambda n: ".self_attn." in n and any(x in n for x in [".q_proj.", ".k_proj.", ".v_proj.", ".o_proj."])
   ```
 
 ---
@@ -49,7 +56,7 @@ Export every tensor from `model.safetensors` into **one CSV/TXT file per weight*
 
 Run a prompt once and save **layer inputs** (`x_layerN.csv`) and **RMSNorm inputs** (`xnorm_layerN.csv`) for all layers, plus small JSON meta.
 
-* Edit `MODEL_DIR`, `TEST_PROMPT`, `OUT_DIR`.
+* Edit `MODEL_DIR`, `TEST_PROMPT`, `OUT_DIR`, `SAVE_X_NORM`, `SAVE_MASKS`.
 * Run:
 
   ```bash
@@ -58,9 +65,11 @@ Run a prompt once and save **layer inputs** (`x_layerN.csv`) and **RMSNorm input
 * Output:
 
   ```
-  ./x_all_layers/x_layer0.csv
-  ./x_all_layers/xnorm_layer0.csv
-  ./x_all_layers/meta_layer0.json
+  ./x_all_layers/x_layer0.csv          # Raw input to layer 0
+  ./x_all_layers/xnorm_layer0.csv      # RMSNorm(x) for Wq/Wk/Wv
+  ./x_all_layers/meta_layer0.json      # Layer metadata (d_model, num_heads, etc.)
+  ./x_all_layers/attention_mask.csv    # Attention mask (if SAVE_MASKS=True)
+  ./x_all_layers/position_ids.csv      # Position IDs (if SAVE_MASKS=True)
   ...
   ```
 
@@ -72,9 +81,28 @@ Later you can load:
 
 * `xnorm_layerN.csv` + weights (`q_proj.weight.csv`, `k_proj.weight.csv`, `v_proj.weight.csv`)
 * Do `q = x_norm @ Wq.T`, etc.
-* Reshape using info from `meta_layerN.json`.
+* Reshape using info from `meta_layerN.json` (d_model, num_heads, head_dim, etc.)
+* Apply RoPE using `position_ids.csv` and `rope_theta` from meta
+* Handle GQA using `num_kv_heads` from meta
 
 This gives you Q/K/V in fp32 for your own attention calculations.
 
-```
-```
+---
+
+## Quick start
+
+1. **Download models:**
+   ```bash
+   python 0_download_models.py
+   ```
+
+2. **Extract weights:**
+   ```bash
+   python 1_model_weights.py
+   ```
+
+3. **Generate activations:**
+   ```bash
+   python 2_get_x.py
+   ```
+
