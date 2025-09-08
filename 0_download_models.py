@@ -10,7 +10,7 @@ BASE_SAVE_DIR = "../model_paths"
 
 # Model repos to download (add/remove as you like)
 MODELS_TO_DOWNLOAD = [
-    "meta-llama/Llama-3.2-1B-Instruct",
+    # "meta-llama/Llama-3.2-1B-Instruct",
     "meta-llama/Llama-3.2-3B-Instruct",
 ]
 

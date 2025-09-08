@@ -2,11 +2,12 @@ from pathlib import Path
 import json
 import numpy as np
 import torch
+import pickle
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # ====================== USER CONFIG (EDIT HERE) ======================
 # Local model folder (downloaded by your downloader)
-MODEL_DIR = "../model_paths/meta-llama_Llama-3.2-1B-Instruct"
+MODEL_DIR = "../model_paths/meta-llama_Llama-3.2-3B-Instruct"
 
 # Device & dtype for the forward pass
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -43,7 +44,8 @@ USE_CHAT_TEMPLATE = True
 
 # Output directory & format
 OUT_DIR = Path("./x_all_layers")
-CSV = True                 # True: CSV (comma); False: TXT (space)
+OUTPUT_FORMAT = "pkl"      # Options: "pkl", "csv", "txt"
+CSV = OUTPUT_FORMAT == "csv"
 DELIM = "," if CSV else " "
 FMT = "%.16e"
 
@@ -89,20 +91,42 @@ def run_model_and_collect(text: str):
     return model, hidden_states, attention_mask, num_layers
 
 
-def save_array_text_3d(arr: np.ndarray, path: Path):
-    """Save [B, T, D] as text with a header; rows = B*T."""
-    B, T, D = arr.shape
-    flat = arr.reshape(B * T, D)
-    with open(path, "w", buffering=1024 * 1024) as f:
-        f.write(f"# shape={list(arr.shape)}\n")
-        np.savetxt(f, flat, fmt=FMT, delimiter=DELIM)
+def save_array_3d(arr: np.ndarray, path: Path, name: str = None):
+    """Save [B, T, D] array in the specified format."""
+    if OUTPUT_FORMAT == "pkl":
+        data = {
+            'array': arr,
+            'shape': list(arr.shape),
+            'dtype': str(arr.dtype),
+            'name': name
+        }
+        with open(path, "wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        # Text format
+        B, T, D = arr.shape
+        flat = arr.reshape(B * T, D)
+        with open(path, "w", buffering=1024 * 1024) as f:
+            f.write(f"# shape={list(arr.shape)}\n")
+            np.savetxt(f, flat, fmt=FMT, delimiter=DELIM)
 
 
-def save_array_text_2d(arr: np.ndarray, path: Path):
-    """Save [B, T] (e.g., masks/pos ids) as text with a header."""
-    with open(path, "w", buffering=1024 * 1024) as f:
-        f.write(f"# shape={list(arr.shape)}\n")
-        np.savetxt(f, arr, fmt="%.0f", delimiter=DELIM)
+def save_array_2d(arr: np.ndarray, path: Path, name: str = None):
+    """Save [B, T] (e.g., masks/pos ids) array in the specified format."""
+    if OUTPUT_FORMAT == "pkl":
+        data = {
+            'array': arr,
+            'shape': list(arr.shape),
+            'dtype': str(arr.dtype),
+            'name': name
+        }
+        with open(path, "wb") as f:
+            pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        # Text format
+        with open(path, "w", buffering=1024 * 1024) as f:
+            f.write(f"# shape={list(arr.shape)}\n")
+            np.savetxt(f, arr, fmt="%.0f", delimiter=DELIM)
 
 
 @torch.no_grad()
@@ -122,9 +146,14 @@ if __name__ == "__main__":
     if SAVE_MASKS:
         am_np = attention_mask.cpu().numpy()
         pos_ids = build_position_ids(attention_mask).cpu().numpy()
-        ext = ".csv" if CSV else ".txt"
-        save_array_text_2d(am_np, OUT_DIR / f"attention_mask{ext}")
-        save_array_text_2d(pos_ids, OUT_DIR / f"position_ids{ext}")
+        
+        if OUTPUT_FORMAT == "pkl":
+            ext = ".pkl"
+        else:
+            ext = ".csv" if CSV else ".txt"
+            
+        save_array_2d(am_np, OUT_DIR / f"attention_mask{ext}", "attention_mask")
+        save_array_2d(pos_ids, OUT_DIR / f"position_ids{ext}", "position_ids")
         print(f"Saved attention_mask and position_ids → {OUT_DIR}")
 
     # For each transformer layer i, the input x_i is hidden_states[i]
@@ -132,11 +161,15 @@ if __name__ == "__main__":
     for i in range(num_layers):
         # x_i as fp32 for analysis
         x_i = hidden_states[i].cpu().to(torch.float32).numpy()  # [B, T, d_model]
-        ext = ".csv" if CSV else ".txt"
+        
+        if OUTPUT_FORMAT == "pkl":
+            ext = ".pkl"
+        else:
+            ext = ".csv" if CSV else ".txt"
 
         # Save raw layer input
         out_x = OUT_DIR / f"x_layer{i}{ext}"
-        save_array_text_3d(x_i, out_x)
+        save_array_3d(x_i, out_x, f"x_layer{i}")
 
         meta = {
             "layer": i,
@@ -160,7 +193,7 @@ if __name__ == "__main__":
             )
 
             out_xn = OUT_DIR / f"xnorm_layer{i}{ext}"
-            save_array_text_3d(x_norm, out_xn)
+            save_array_3d(x_norm, out_xn, f"xnorm_layer{i}")
 
         # Try to record RoPE base (theta) if available in this HF version
         try:
